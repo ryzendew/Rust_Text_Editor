@@ -317,6 +317,19 @@ fn create_tag_table() -> TextTagTable {
     tag_table
 }
 
+fn create_tab_transition<W: IsA<gtk::Widget>>(widget: &W) {
+    let provider = gtk::CssProvider::new();
+    provider.load_from_data(
+        "
+        .tab-transition {
+            transition: opacity 150ms ease-out;
+        }
+        "
+    );
+    widget.style_context().add_provider(&provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    widget.add_css_class("tab-transition");
+}
+
 fn create_menu_bar(window: &gtk::ApplicationWindow, buffer: &gtk::TextBuffer, editor_state: Arc<Mutex<EditorState>>, status_label: gtk::Label, text_view: &gtk::TextView) -> (gtk::Box, gtk::Button, gtk::Button, gtk::Button, gtk::Button, gtk::Button, gtk::Box, gtk::Button, gtk::Button, gtk::CheckButton) {
     // Create the main vertical container for menu and tabs
     let main_container = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -1401,9 +1414,11 @@ fn create_menu_bar(window: &gtk::ApplicationWindow, buffer: &gtk::TextBuffer, ed
             }
         };
         
-        // Create new tab
+        // Create new tab with initial opacity of 0
         let new_tab_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         new_tab_box.set_css_classes(&["tab-button"]);
+        new_tab_box.set_opacity(0.0);
+        create_tab_transition(&new_tab_box);
         
         let new_tab_label = gtk::Label::new(Some(&format!("Untitled {}", tab_id)));
         new_tab_label.set_css_classes(&["tab-label"]);
@@ -1423,6 +1438,17 @@ fn create_menu_bar(window: &gtk::ApplicationWindow, buffer: &gtk::TextBuffer, ed
         new_tab_wrapper.set_css_classes(&["tab-button-wrapper"]);
         new_tab_wrapper.set_has_frame(false);
         new_tab_wrapper.set_child(Some(&new_tab_box));
+        
+        // Add the tab to the box first
+        tabs_box_ref.remove(&new_tab_button_ref);
+        tabs_box_ref.append(&new_tab_wrapper);
+        tabs_box_ref.append(&new_tab_button_ref);
+        
+        // Use a timeout to trigger the fade-in
+        glib::timeout_add_local(Duration::from_millis(50), move || {
+            new_tab_box.set_opacity(1.0);
+            glib::ControlFlow::Break
+        });
         
         // Connect close button - we need a fresh buffer for each tab
         let tabs_box_ref_clone = tabs_box_ref.clone();
@@ -1452,23 +1478,40 @@ fn create_menu_bar(window: &gtk::ApplicationWindow, buffer: &gtk::TextBuffer, ed
             let is_active = new_tab_wrapper_clone.css_classes().iter().any(|class| class == "active");
             debug!("Is active tab: {}", is_active);
             
-            // When the X button is clicked, remove the tab
-            debug!("Attempting to remove tab from tabs_box");
-            tabs_box_ref_clone.remove(&new_tab_wrapper_clone);
+            // Create fade-out transition
+            create_tab_transition(&new_tab_wrapper_clone);
             
-            // Check if the tab was actually removed
-            if new_tab_wrapper_clone.parent().is_some() {
-                warn!("Tab wasn't removed properly, it still has a parent");
-            } else {
-                debug!("Tab was successfully removed");
-            }
+            // Start the fade-out
+            new_tab_wrapper_clone.set_opacity(0.0);
             
-            // If this was the active tab, switch back to the first tab
-            if is_active {
-                debug!("Switching back to first tab since active tab was closed");
-                text_view_ref_clone.set_buffer(Some(&buffer_for_close));
-                tab_button_wrapper_ref_clone.set_css_classes(&["tab-button-wrapper", "active"]);
-            }
+            // Clone all the necessary variables for the inner closure
+            let tabs_box_ref_inner = tabs_box_ref_clone.clone();
+            let new_tab_wrapper_inner = new_tab_wrapper_clone.clone();
+            let text_view_ref_inner = text_view_ref_clone.clone();
+            let buffer_for_close_inner = buffer_for_close.clone();
+            let tab_button_wrapper_ref_inner = tab_button_wrapper_ref_clone.clone();
+            let is_active_inner = is_active;
+            
+            glib::timeout_add_local(Duration::from_millis(150), move || {
+                // Remove the tab after animation completes
+                tabs_box_ref_inner.remove(&new_tab_wrapper_inner);
+                
+                // Check if the tab was actually removed
+                if new_tab_wrapper_inner.parent().is_some() {
+                    warn!("Tab wasn't removed properly, it still has a parent");
+                } else {
+                    debug!("Tab was successfully removed");
+                }
+                
+                // If this was the active tab, switch back to the first tab
+                if is_active_inner {
+                    debug!("Switching back to first tab since active tab was closed");
+                    text_view_ref_inner.set_buffer(Some(&buffer_for_close_inner));
+                    tab_button_wrapper_ref_inner.set_css_classes(&["tab-button-wrapper", "active"]);
+                }
+                
+                glib::ControlFlow::Break
+            });
         });
         
         // Connect tab button to switch to this tab
@@ -2438,6 +2481,7 @@ fn main() -> Result<()> {
                 color: #d0d0d0;
                 min-width: 0;
                 width: auto;
+                transition: background-color 150ms ease-out;
             }
             .tab-button-wrapper {
                 background: none;
@@ -2446,6 +2490,7 @@ fn main() -> Result<()> {
                 min-height: 0;
                 min-width: 0;
                 width: auto;
+                transition: all 150ms ease-out;
             }
             .tab-button-wrapper:checked .tab-button,
             .tab-button-wrapper:active .tab-button {
@@ -2467,6 +2512,7 @@ fn main() -> Result<()> {
                 border-radius: 2px;
                 background: none;
                 opacity: 0.7;
+                transition: all 150ms ease-out;
             }
             .tab-close-button:hover {
                 background-color: rgba(255, 0, 0, 0.2);
@@ -2483,9 +2529,19 @@ fn main() -> Result<()> {
                 border: none;
                 position: relative;
                 top: 1px;
+                transition: all 150ms ease-out;
             }
             .new-tab-button:hover {
                 background-color: rgba(255, 255, 255, 0.08);
+            }
+            .tab-button-wrapper.active .tab-button {
+                background-color: #3a3a3a;
+                box-shadow: none;
+                transition: background-color 150ms ease-out;
+            }
+            .tab-button-wrapper.active {
+                background-color: transparent;
+                transition: all 150ms ease-out;
             }
             button {
                 min-height: 0;
