@@ -1,0 +1,55 @@
+import { Button, LineEdit, ScrollView, StandardButton } from "std-widgets.slint";
+
+component EditorWindow inherits Window {
+    preferred-width: 800px;
+    preferred-height: 600px;
+    title: "Rust Editor";
+    
+    callback open-file();
+    callback save-file();
+    callback new-file();
+    
+    VerticalLayout {
+        padding: 8px;
+        
+        HorizontalLayout {
+            height: 40px;
+            spacing: 8px;
+            
+            Button { 
+                text: "New";
+                clicked => { root.new-file(); }
+            }
+            Button { 
+                text: "Open";
+                clicked => { root.open-file(); }
+            }
+            Button { 
+                text: "Save";
+                clicked => { root.save-file(); }
+            }
+        }
+        
+        TextEdit {
+            font-family: "monospace";
+            font-size: 14px;
+            width: parent.width - 16px;
+            height: parent.height - 56px;
+            text <=> root.editor-content;
+        }
+        
+        Rectangle {
+            height: 24px;
+            HorizontalLayout {
+                Text {
+                    text: "Line: " + root.current-line + " Col: " + root.current-column;
+                    color: #666;
+                }
+            }
+        }
+    }
+    
+    in property <string> editor-content: "";
+    in property <int> current-line: 1;
+    in property <int> current-column: 1;
+} 
